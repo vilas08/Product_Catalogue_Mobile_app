@@ -1,0 +1,20 @@
+{
+  "expo": {
+    "name": "SalespersonAuth",
+    "slug": "salesperson-auth",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.example.salespersonauth"
+    },
+    "android": {
+      "package": "com.example.salespersonauth"
+    },
+    "plugins": [
+      "expo-secure-store"
+    ]
+  }
+}

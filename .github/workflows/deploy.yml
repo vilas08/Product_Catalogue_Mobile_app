@@ -1,0 +1,95 @@
+name: Deploy Auth Backend (dev / test / prod)
+
+on:
+  push:
+    branches:
+      - dev
+      - test
+      - prod
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: Target deployment stage
+        required: true
+        type: choice
+        options:
+          - dev
+          - test
+          - prod
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  verify:
+    name: Verify Backend & Mobile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install & verify backend
+        working-directory: backend
+        run: |
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm test
+          npm run build
+
+      - name: Install & verify mobile
+        working-directory: mobile
+        run: |
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm test
+
+  deploy:
+    name: Deploy to ${{ github.event.inputs.stage || github.ref_name }}
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.stage || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build backend production bundle
+        working-directory: backend
+        run: |
+          npm ci
+          npm run build
+          cp package.json package-lock.json dist/
+          cd dist && npm ci --omit=dev
+
+      - uses: aws-actions/setup-sam@v2
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - name: Deploy SAM stack
+        working-directory: infra
+        env:
+          STAGE: ${{ github.event.inputs.stage || github.ref_name }}
+        run: |
+          sam deploy \
+            --template-file template.yaml \
+            --config-file samconfig.toml \
+            --config-env "$STAGE" \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset \
+            --parameter-overrides \
+              "Stage=$STAGE" \
+              "JwtIssuer=${{ vars.JWT_ISSUER }}" \
+              "JwtPrivateKeySecretArn=${{ secrets.JWT_PRIVATE_KEY_SECRET_ARN }}" \
+              "JwtPublicKey=${{ vars.JWT_PUBLIC_KEY }}" \
+              "CorsAllowOrigin=${{ vars.CORS_ALLOW_ORIGIN || '''*''' }}"

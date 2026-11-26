@@ -1,0 +1,16 @@
+{
+  "name": "salesperson-auth-monorepo",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "generate-keys": "node scripts/generate-keys.mjs",
+    "lint:backend": "npm --prefix backend run lint",
+    "lint:mobile": "npm --prefix mobile run lint",
+    "typecheck:backend": "npm --prefix backend run typecheck",
+    "typecheck:mobile": "npm --prefix mobile run typecheck",
+    "test:backend": "npm --prefix backend test",
+    "test:mobile": "npm --prefix mobile test",
+    "package:backend": "npm --prefix backend run package",
+    "build:mobile": "npm --prefix mobile run build:check"
+  }
+}

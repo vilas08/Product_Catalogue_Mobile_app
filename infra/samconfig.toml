@@ -1,0 +1,28 @@
+version = 0.1
+
+[dev.deploy.parameters]
+stack_name = "salesperson-auth-dev"
+resolve_s3 = true
+s3_prefix = "salesperson-auth-dev"
+region = "us-east-1"
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = "Stage=dev"
+confirm_changeset = false
+
+[test.deploy.parameters]
+stack_name = "salesperson-auth-test"
+resolve_s3 = true
+s3_prefix = "salesperson-auth-test"
+region = "us-east-1"
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = "Stage=test"
+confirm_changeset = false
+
+[prod.deploy.parameters]
+stack_name = "salesperson-auth-prod"
+resolve_s3 = true
+s3_prefix = "salesperson-auth-prod"
+region = "us-east-1"
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = "Stage=prod"
+confirm_changeset = true

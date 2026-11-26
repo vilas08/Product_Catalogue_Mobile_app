@@ -1,0 +1,152 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Production-ready Salesperson/User Authentication (No Cognito, Single Users Table, 3-Stage)
+
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - test
+      - prod
+    Description: Deployment stage (dev, test, prod)
+  JwtIssuer:
+    Type: String
+    Default: https://auth.example.com
+  JwtPrivateKeySecretArn:
+    Type: String
+    Description: ARN of the AWS Secrets Manager secret holding the RS256 private key PEM
+  JwtPublicKey:
+    Type: String
+    Description: RS256 public key PEM (non-secret)
+  CorsAllowOrigin:
+    Type: String
+    Default: "'*'"
+
+Mappings:
+  StageConfig:
+    dev:
+      ThrottleBurst: 50
+      ThrottleRate: 25
+      PitrEnabled: false
+    test:
+      ThrottleBurst: 50
+      ThrottleRate: 25
+      PitrEnabled: true
+    prod:
+      ThrottleBurst: 100
+      ThrottleRate: 50
+      PitrEnabled: true
+
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Timeout: 10
+    MemorySize: 256
+    Environment:
+      Variables:
+        STAGE: !Ref Stage
+        USERS_TABLE: !Ref UsersTable
+        JWT_ISSUER: !Ref JwtIssuer
+        JWT_ACCESS_EXPIRY: 15m
+        JWT_OFFLINE_EXPIRY: 7d
+        REFRESH_TOKEN_EXPIRY: 7d
+        INACTIVITY_LIMIT_DAYS: '7'
+        JWT_PRIVATE_KEY_SECRET_ARN: !Ref JwtPrivateKeySecretArn
+        JWT_PUBLIC_KEY: !Ref JwtPublicKey
+
+Resources:
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'Users-${Stage}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: email
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: !FindInMap [StageConfig, !Ref Stage, PitrEnabled]
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+
+  AuthApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub 'salesperson-auth-api-${Stage}'
+      StageName: !Ref Stage
+      Cors:
+        AllowMethods: "'GET,POST,OPTIONS'"
+        AllowHeaders: "'Content-Type,Authorization'"
+        AllowOrigin: !Ref CorsAllowOrigin
+      MethodSettings:
+        - ResourcePath: '/*'
+          HttpMethod: '*'
+          ThrottlingBurstLimit: !FindInMap [StageConfig, !Ref Stage, ThrottleBurst]
+          ThrottlingRateLimit: !FindInMap [StageConfig, !Ref Stage, ThrottleRate]
+
+  AuthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 'salesperson-auth-${Stage}'
+      CodeUri: ../backend/dist
+      Handler: index.handler
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:UpdateItem
+              Resource: !GetAtt UsersTable.Arn
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource: !Ref JwtPrivateKeySecretArn
+      Events:
+        Login:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AuthApi
+            Path: /auth/login
+            Method: post
+        Refresh:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AuthApi
+            Path: /auth/refresh
+            Method: post
+        Logout:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AuthApi
+            Path: /auth/logout
+            Method: post
+        Me:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AuthApi
+            Path: /auth/me
+            Method: get
+        Activity:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AuthApi
+            Path: /auth/activity
+            Method: post
+
+Outputs:
+  Stage:
+    Description: Deployed stage
+    Value: !Ref Stage
+  ApiUrl:
+    Description: API Gateway endpoint URL
+    Value: !Sub 'https://${AuthApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}'
+  UsersTableName:
+    Description: DynamoDB Users table name
+    Value: !Ref UsersTable
