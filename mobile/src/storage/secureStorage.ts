@@ -103,6 +103,19 @@ export async function clearOfflineActivityQueue(): Promise<void> {
   await SecureStore.deleteItemAsync(KEYS.OFFLINE_ACTIVITY_QUEUE);
 }
 
+export async function removeSyncedOfflineActivities(syncedCount: number): Promise<void> {
+  if (syncedCount <= 0) {
+    return;
+  }
+  const current = await getOfflineActivityQueue();
+  const remaining = current.slice(syncedCount);
+  if (remaining.length === 0) {
+    await clearOfflineActivityQueue();
+  } else {
+    await SecureStore.setItemAsync(KEYS.OFFLINE_ACTIVITY_QUEUE, JSON.stringify(remaining));
+  }
+}
+
 /**
  * Clears session credentials while preserving the stable installation deviceId.
  */

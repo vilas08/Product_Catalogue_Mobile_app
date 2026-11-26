@@ -69,7 +69,8 @@ describe('AuthContext Offline, Sync, and Logout', () => {
     const Probe = () => {
       const auth = useAuth();
       capturedAuth = auth;
-      return <Text>{auth.isAuthenticated ? auth.authMode : 'LOGGED_OUT'}</Text>;
+      const label = auth.isLoading ? 'LOADING' : auth.isAuthenticated ? auth.authMode : 'LOGGED_OUT';
+      return <Text>{label}</Text>;
     };
 
     const { getByText } = render(
@@ -153,7 +154,8 @@ describe('AuthContext Offline, Sync, and Logout', () => {
     const Probe = () => {
       const auth = useAuth();
       capturedAuth = auth;
-      return <Text>{auth.isAuthenticated ? auth.authMode : 'LOGGED_OUT'}</Text>;
+      const label = auth.isLoading ? 'LOADING' : auth.isAuthenticated ? auth.authMode : 'LOGGED_OUT';
+      return <Text>{label}</Text>;
     };
 
     const { getByText } = render(
@@ -171,5 +173,88 @@ describe('AuthContext Offline, Sync, and Logout', () => {
 
     expect(await getOfflineActivityQueue()).toHaveLength(0);
     expect(syncedBodies.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('retains queued offline activity when synchronization fails and clears on retry', async () => {
+    (NetInfo.fetch as jest.Mock).mockResolvedValue({
+      isConnected: true,
+      isInternetReachable: true,
+    });
+
+    await saveAuthCredentials({
+      accessToken: 'access-1',
+      refreshToken: 'refresh-1',
+      offlineToken: createOfflineJwt('session-1'),
+      sessionId: 'session-1',
+      deviceId: 'device-1',
+      user: {
+        email: 'sales1@example.com',
+        name: 'Alex',
+        role: 'SALESPERSON',
+        status: 'ACTIVE',
+      },
+    });
+
+    let shouldFailActivity = false;
+    global.fetch = jest.fn(async (url: string) => {
+      if (url.endsWith('/auth/me')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            user: {
+              email: 'sales1@example.com',
+              name: 'Alex',
+              role: 'SALESPERSON',
+              status: 'ACTIVE',
+            },
+          }),
+        } as Response;
+      }
+      if (url.endsWith('/auth/activity')) {
+        if (shouldFailActivity) {
+          throw new Error('Network error');
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ success: true }),
+        } as Response;
+      }
+      return { ok: false, status: 404, json: async () => ({}) } as Response;
+    }) as unknown as typeof fetch;
+
+    let capturedAuth: ReturnType<typeof useAuth> | null = null;
+    const Probe = () => {
+      const auth = useAuth();
+      capturedAuth = auth;
+      const label = auth.isLoading ? 'LOADING' : auth.isAuthenticated ? auth.authMode : 'LOGGED_OUT';
+      return <Text>{label}</Text>;
+    };
+
+    const { getByText } = render(
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>
+    );
+
+    await waitFor(() => expect(getByText('ONLINE')).toBeTruthy());
+
+    shouldFailActivity = true;
+    await act(async () => {
+      await capturedAuth!.recordLocalActivity('offline_sale');
+      await capturedAuth!.synchronizeActivity();
+    });
+
+    // Failed sync must retain the queued activity for retry
+    expect(await getOfflineActivityQueue()).toHaveLength(1);
+
+    // Retry once network recovers
+    shouldFailActivity = false;
+    await act(async () => {
+      await capturedAuth!.synchronizeActivity();
+    });
+
+    expect(await getOfflineActivityQueue()).toHaveLength(0);
   });
 });

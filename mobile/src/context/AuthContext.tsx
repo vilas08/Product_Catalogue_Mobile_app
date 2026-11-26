@@ -4,12 +4,12 @@ import { AuthApiClient, NetworkUnavailableError, SessionRevokedError } from '../
 import { verifyOfflineJwt } from '../auth/offlineJwt';
 import {
   appendOfflineActivity,
-  clearOfflineActivityQueue,
   clearSessionCredentials,
   getOfflineActivityQueue,
   getOrCreateDeviceId,
   getStoredCredentials,
   getStoredUser,
+  removeSyncedOfflineActivities,
   saveAuthCredentials,
 } from '../storage/secureStorage';
 import { AuthMode, AuthUser } from '../types/auth';
@@ -137,7 +137,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         body: JSON.stringify({ events: queue }),
       });
       if (queue.length > 0) {
-        await clearOfflineActivityQueue();
+        await removeSyncedOfflineActivities(queue.length);
       }
       setAuthMode('ONLINE');
     } catch (err) {
@@ -148,6 +148,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (err instanceof SessionRevokedError) {
         return;
       }
+      // Retain queued activity for retry on transient server errors
     }
   }, [apiClient]);
 
